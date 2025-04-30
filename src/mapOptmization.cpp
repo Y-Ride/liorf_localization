@@ -16,6 +16,11 @@
 
 #include <gtsam/nonlinear/ISAM2.h>
 
+#include <GeographicLib/Geocentric.hpp>
+#include <GeographicLib/LocalCartesian.hpp>
+
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+
 using namespace gtsam;
 
 using symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
@@ -59,7 +64,7 @@ public:
     Eigen::MatrixXd poseCovariance;
 
     rclcpp::Subscription<liorf_localization::msg::CloudInfo>::SharedPtr subCloud;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subGPS;
+    rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr subGPS;
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr subLoop;
     rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr sub_initial_pose;
 
@@ -76,6 +81,7 @@ public:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubCloudRegisteredRaw;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pubLoopConstraintEdge;
     rclcpp::Publisher<liorf_localization::msg::CloudInfo>::SharedPtr pubSLAMInfo;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubGpsOdom;
 
     rclcpp::Service<liorf_localization::srv::SaveMap>::SharedPtr srvSaveMap;
 
@@ -140,6 +146,8 @@ public:
     Eigen::Affine3f incrementalOdometryAffineFront;
     Eigen::Affine3f incrementalOdometryAffineBack;
 
+    GeographicLib::LocalCartesian gps_trans_;
+
     // add by yjz_lucky_boy
     // localization
     bool has_global_map = false;
@@ -158,7 +166,7 @@ public:
 
         subCloud = create_subscription<liorf_localization::msg::CloudInfo>("liorf_localization/deskew/cloud_info", QosPolicy(history_policy, reliability_policy),
                     std::bind(&mapOptimization::laserCloudInfoHandler, this, std::placeholders::_1));
-        subGPS = create_subscription<nav_msgs::msg::Odometry>(gpsTopic, QosPolicy(history_policy, reliability_policy),
+        subGPS = create_subscription<sensor_msgs::msg::NavSatFix>(gpsTopic, QosPolicy(history_policy, reliability_policy),
                     std::bind(&mapOptimization::gpsHandler, this, std::placeholders::_1));
         subLoop = create_subscription<std_msgs::msg::Float64MultiArray>("lio_loop/loop_closure_detection", QosPolicy(history_policy, reliability_policy),
                     std::bind(&mapOptimization::loopInfoHandler, this, std::placeholders::_1));
@@ -178,6 +186,7 @@ public:
         pubCloudRegisteredRaw = create_publisher<sensor_msgs::msg::PointCloud2>("liorf_localization/mapping/cloud_registered_raw", QosPolicy(history_policy, reliability_policy));
         pubGlobalMap = create_publisher<sensor_msgs::msg::PointCloud2>("liorf_localization/localization/global_map", QosPolicy(history_policy, reliability_policy));
         pubSLAMInfo = create_publisher<liorf_localization::msg::CloudInfo>("liorf_localization/mapping/slam_info", QosPolicy(history_policy, reliability_policy));
+        pubGpsOdom = create_publisher<nav_msgs::msg::Odometry>("liorf_localization/mapping/gps_odom", QosPolicy(history_policy, reliability_policy));
 
         br = std::make_unique<tf2_ros::TransformBroadcaster>(this);
 
@@ -272,6 +281,48 @@ public:
         has_initialize_pose = true;
     }
 
+    // Added for localization
+    void initialposeHandlerGps() 
+    {
+        if (gpsQueue.size() < 2)
+            return;
+        
+        // Add GPS every a few meters
+        PointType curGPSPoint;
+        curGPSPoint.x = gpsQueue.back().pose.pose.position.x;
+        curGPSPoint.y = gpsQueue.back().pose.pose.position.y;
+        curGPSPoint.z = gpsQueue.back().pose.pose.position.z;
+
+        PointType firstGPSPoint;
+        firstGPSPoint.x = gpsQueue.front().pose.pose.position.x;
+        firstGPSPoint.y = gpsQueue.front().pose.pose.position.y;
+        firstGPSPoint.z = gpsQueue.front().pose.pose.position.z;
+        
+        if (common_lib_->pointDistance(curGPSPoint, firstGPSPoint) < 1.0)
+            return;
+        else 
+        {
+            RCLCPP_INFO(get_logger(), "GPS initial pose set");
+            
+            tf2::Quaternion q(gpsQueue.back().pose.pose.orientation.x, gpsQueue.back().pose.pose.orientation.y, 
+            gpsQueue.back().pose.pose.orientation.z, gpsQueue.back().pose.pose.orientation.w);
+            tf2::Matrix3x3 qm(q);
+            
+            double roll, pitch, yaw;
+            qm.getRPY(roll, pitch, yaw);
+            
+            initialize_pose[0] = roll;
+            initialize_pose[1] = pitch;
+            initialize_pose[2] = yaw;
+            
+            initialize_pose[3] = gpsQueue.back().pose.pose.position.x;
+            initialize_pose[4] = gpsQueue.back().pose.pose.position.y;
+            initialize_pose[5] = gpsQueue.back().pose.pose.position.z;
+
+            has_initialize_pose = true;
+        }
+    }
+
     void laserCloudInfoHandler(const liorf_localization::msg::CloudInfo::SharedPtr msgIn)
     {
         // extract time stamp
@@ -311,15 +362,24 @@ public:
         }
     }
 
+    // add by yjz_lucky_boy
     bool systemInitialize()
     {
         if (!has_global_map)
-          return false;
+            return false;
 
         if(!has_initialize_pose)
         {
-          RCLCPP_WARN(get_logger(), "need initilize pose from rviz.");
-          return false;
+            if (gpsRef.useRef)
+            {
+                RCLCPP_WARN(get_logger(), "Waiting for initial pose from GPS. Move at least 1 meter to initialize.");
+                return false;
+            }
+            else
+            {
+                RCLCPP_WARN(get_logger(), "Waiting for initilize pose from rviz. Use \"2D Pose Estimate\" on rviz to set the initial pose");
+                return false;
+            }
         }
 
         static pcl::IterativeClosestPoint<PointType, PointType> icp;
@@ -372,9 +432,57 @@ public:
         }
     }
 
-    void gpsHandler(const nav_msgs::msg::Odometry::SharedPtr gpsMsg)
+    void gpsHandler(const sensor_msgs::msg::NavSatFix::SharedPtr gpsMsg)
     {
-        gpsQueue.push_back(*gpsMsg);
+        static bool firstPass = true;
+        if (firstPass){
+            firstPass = false;
+            RCLCPP_INFO(rclcpp::get_logger("mapOptimization"), "Got first GPS message from topic: %s", gpsTopic.c_str());
+        }
+
+        if (gpsMsg->status.status < 0) {
+            RCLCPP_WARN(rclcpp::get_logger("mapOptimization"), "GPS signal is invalid");
+            return;
+        }
+
+        // gpsQueue.push_back(*gpsMsg);
+        
+        // The Following code was removed from the original liorf
+        Eigen::Vector3d trans_local_;
+        static bool first_gps = false;
+        if (!first_gps) {
+            first_gps = true;
+            RCLCPP_INFO(rclcpp::get_logger("mapOptimization"), "GPS using altitude: %s\033[0m", useGpsElevation ? "\033[32mtrue" : "\033[33mfalse");
+            if (gpsRef.useRef){
+                gps_trans_.Reset(gpsRef.lat, gpsRef.lon, gpsRef.alt);
+                RCLCPP_INFO(rclcpp::get_logger("mapOptimization"), "GPS reference at: %f, %f, %f", gpsRef.lat, gpsRef.lon, gpsRef.alt);
+            }
+            else {
+                gps_trans_.Reset(gpsMsg->latitude, gpsMsg->longitude, gpsMsg->altitude);
+                RCLCPP_INFO(rclcpp::get_logger("mapOptimization"), "GPS initialized at robot origin: %f, %f, %f", gpsMsg->latitude, gpsMsg->longitude, gpsMsg->altitude);
+            }
+        }
+        
+        gps_trans_.Forward(gpsMsg->latitude, gpsMsg->longitude, gpsMsg->altitude, trans_local_[0], trans_local_[1], trans_local_[2]);
+        
+        nav_msgs::msg::Odometry gps_odom;
+        gps_odom.header = gpsMsg->header;
+        gps_odom.header.frame_id = "map";
+        gps_odom.pose.pose.position.x = trans_local_[0];
+        gps_odom.pose.pose.position.y = trans_local_[1];
+        gps_odom.pose.pose.position.z = trans_local_[2];
+        tf2::Quaternion quat_tf;
+        quat_tf.setRPY(0.0, 0.0, 0.0);
+        geometry_msgs::msg::Quaternion quat_msg;
+        tf2::convert(quat_tf, quat_msg);
+        gps_odom.pose.pose.orientation = quat_msg;
+        pubGpsOdom->publish(gps_odom);
+        gpsQueue.push_back(gps_odom);
+        
+        if (!has_initialize_pose)
+        {
+            initialposeHandlerGps();
+        }
     }
 
     void pointAssociateToMap(PointType const * const pi, PointType * const po)

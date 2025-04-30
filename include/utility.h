@@ -37,8 +37,8 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/transform_broadcaster.h>
-#include <tf2_eigen/tf2_eigen.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_eigen/tf2_eigen.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
  
 #include <opencv2/opencv.hpp>
  
@@ -92,6 +92,12 @@ public:
     bool useGpsElevation;
     float gpsCovThreshold;
     float poseCovThreshold;
+    struct {
+        float lat;
+        float lon;
+        float alt;
+        bool useRef;
+    } gpsRef;
 
     // Save pcd
     bool savePCD;
@@ -188,6 +194,24 @@ public:
         get_parameter("gpsCovThreshold", gpsCovThreshold);
         declare_parameter<float>("poseCovThreshold", 25.0f);
         get_parameter("poseCovThreshold", poseCovThreshold);
+
+        // Declare the nested parameters with default values
+        declare_parameter<double>("gpsRef.latitude", 0.0);
+        declare_parameter<double>("gpsRef.longitude", 0.0);
+        declare_parameter<double>("gpsRef.altitude", 0.0);
+        declare_parameter<bool>("gpsRef.useRef", false);
+
+        // Get the values of the nested parameters
+        get_parameter("gpsRef.latitude", gpsRef.lat);
+        get_parameter("gpsRef.longitude", gpsRef.lon);
+        get_parameter("gpsRef.altitude", gpsRef.alt);
+        get_parameter("gpsRef.useRef", gpsRef.useRef);
+
+        // gpsRef.lon_provided = has_parameter("gpsRef.longitude");
+        // gpsRef.alt_provided = has_parameter("gpsRef.altitude");
+        RCLCPP_INFO(get_logger(), "\033[1;32mGPS Ref received status: %slat: %0.2f, lon: %0.2f, alt: %0.2f\033[0m",
+            gpsRef.useRef ? "\033[1;32m" : "\033[1;33m",
+            gpsRef.lat, gpsRef.lon, gpsRef.alt);
 
         declare_parameter<bool>("savePCD", false);
         get_parameter("savePCD", savePCD);

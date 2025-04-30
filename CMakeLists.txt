@@ -33,6 +33,9 @@ find_package(Boost REQUIRED COMPONENTS timer)
 
 set(ros2_lib "rclcpp;rclpy;std_msgs;sensor_msgs;geometry_msgs;cv_bridge;nav_msgs;pcl_msgs;pcl_conversions;visualization_msgs;tf2;tf2_ros;tf2_eigen;tf2_sensor_msgs;tf2_geometry_msgs")
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "/usr/share/cmake/geographiclib/")
+find_package(GeographicLib REQUIRED)
+
 rosidl_generate_interfaces(${PROJECT_NAME} 
   "msg/CloudInfo.msg"
   "srv/SaveMap.srv"
