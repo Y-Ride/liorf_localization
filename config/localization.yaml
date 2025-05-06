@@ -8,6 +8,7 @@
     imuTopic: "/inertial_sense/imu"                         # IMU data # <!-- liorf_localization_yjz_lucky_boy -->
     odomTopic: "odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
     gpsTopic: "/inertial_sense/gps1/NavSatFix"                   # GPS odometry topic from navsat, see module_navsat.launch file
+    gpsTopicType: 0                             # 0: sensor_msgs::msg::NavSatFix, 1: nav_msgs::msg::Odometry
 
     # Frames
     lidarFrame: "os_lidar_top"

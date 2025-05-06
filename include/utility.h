@@ -68,6 +68,10 @@ typedef pcl::PointXYZI PointType;
 std::shared_ptr<CommonLib::common_lib> common_lib_;
 
 enum class SensorType { VELODYNE, OUSTER, LIVOX, ROBOSENSE, MULRAN};
+enum class GpsTopicType { 
+    SENSOR_MSGS_NAVSATFIX,
+    NAV_MSGS_ODOMETRY
+};
 
 class ParamServer : public rclcpp::Node
 {
@@ -80,6 +84,7 @@ public:
     string imuTopic;
     string odomTopic;
     string gpsTopic;
+    GpsTopicType gpsTopicType;
 
     //Frames
     string lidarFrame;
@@ -176,6 +181,25 @@ public:
         get_parameter("odomTopic", odomTopic);
         declare_parameter<string>("gpsTopic", "/odometry/gps");
         get_parameter("gpsTopic", gpsTopic);
+
+        int gpsTopicInt;
+        declare_parameter<int>("gpsTopicType", -1);
+        get_parameter("gpsTopicType", gpsTopicInt);
+        if (gpsTopicInt == 0)
+        {
+            gpsTopicType = GpsTopicType::SENSOR_MSGS_NAVSATFIX;
+        }
+        else if (gpsTopicInt == 1)
+        {
+            gpsTopicType = GpsTopicType::NAV_MSGS_ODOMETRY;
+        }
+        else
+        {
+            RCLCPP_ERROR_STREAM(
+                get_logger(),
+                "Invalid gps topic type (must be either 0 -> 'sensor_msgs/NavSatFix' or 1 -> 'nav_msgs/Odometry'): " << gpsTopicInt);
+            rclcpp::shutdown();
+        }
 
         declare_parameter<string>("lidarFrame", "base_link");
         get_parameter("lidarFrame", lidarFrame);
