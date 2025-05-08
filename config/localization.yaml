@@ -9,6 +9,8 @@
     odomTopic: "odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
     gpsTopic: "/inertial_sense/gps1/NavSatFix"                   # GPS odometry topic from navsat, see module_navsat.launch file
     gpsTopicType: 0                             # 0: sensor_msgs::msg::NavSatFix, 1: nav_msgs::msg::Odometry
+    # gpsTopic: "/inertial_sense/odom_ins_ned"
+    # gpsTopicType: 1
 
     # Frames
     lidarFrame: "os_lidar_top"
