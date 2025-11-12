@@ -498,7 +498,8 @@ public:
             RCLCPP_WARN(rclcpp::get_logger("mapOptimization"), "GPS signal is invalid");
             return;
         }
-        gpsQueue.push_back(*gpsMsg);
+        if (useGpsFactor || !has_initialize_pose)
+            gpsQueue.push_back(*gpsMsg);
 
         if (!has_initialize_pose)
         {
@@ -571,7 +572,9 @@ public:
         tf2::convert(quat_tf, quat_msg);
         gps_odom.pose.pose.orientation = quat_msg;
         pubGpsOdom->publish(gps_odom);
-        gpsQueue.push_back(gps_odom);
+
+        if (useGpsFactor || !has_initialize_pose)
+            gpsQueue.push_back(gps_odom);
         
         if (!has_initialize_pose)
         {
@@ -1079,7 +1082,7 @@ public:
             // transformTobeMapped[1] = cloudInfo.imupitchinit;
             // transformTobeMapped[2] = cloudInfo.imuyawinit;
 
-            // if (!useImuHeadingInitialization)
+            // if (!useGpsFactor)
             //     transformTobeMapped[2] = 0;
 
             lastImuTransformation = pcl::getTransformation(0, 0, 0, cloudInfo.imurollinit, cloudInfo.imupitchinit, cloudInfo.imuyawinit); // save imu before return;
@@ -1678,7 +1681,8 @@ public:
         addOdomFactor();
 
         // gps factor
-        addGPSFactor();
+        if (useGpsFactor)
+            addGPSFactor();
 
         // loop factor
         addLoopFactor();

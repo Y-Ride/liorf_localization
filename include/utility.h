@@ -93,7 +93,7 @@ public:
     string mapFrame;
 
     // GPS Settings
-    bool useImuHeadingInitialization;
+    bool useGpsFactor;
     bool useGpsElevation;
     float gpsCovThreshold;
     float poseCovThreshold;
@@ -210,8 +210,8 @@ public:
         declare_parameter<string>("mapFrame", "map");
         get_parameter("mapFrame", mapFrame);
 
-        declare_parameter<bool>("useImuHeadingInitialization", false);
-        get_parameter("useImuHeadingInitialization", useImuHeadingInitialization);
+        declare_parameter<bool>("useGpsFactor", false);
+        get_parameter("useGpsFactor", useGpsFactor);
         declare_parameter<bool>("useGpsElevation", false);
         get_parameter("useGpsElevation", useGpsElevation);
         declare_parameter<float>("gpsCovThreshold", 2.0f);
